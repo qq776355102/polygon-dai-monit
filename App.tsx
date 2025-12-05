@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { WalletData, SortOption } from './types';
-import { loadWallets, saveWallets, getLastUpdateTime, setLastUpdateTime, updateWalletHistory, getRpcUrl, saveRpcUrl } from './services/storageService';
+import { getWallets, saveWallets, getLastUpdateTime, setLastUpdateTime, updateWalletHistory, getRpcUrl, saveRpcUrl, isCloudStorageEnabled } from './services/storageService';
 import { fetchBalancesBatch, fetchBlockNumber, reinitializeClient } from './services/web3Service';
 import { analyzeWallets } from './services/geminiService';
 import WalletTable from './components/WalletTable';
 import AdminPanel from './components/AdminPanel';
 import StatsCard from './components/StatsCard';
-import { LayoutDashboard, Users, TrendingUp, Search, Filter, RefreshCcw, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, Search, Filter, RefreshCcw, Sparkles, Cloud, HardDrive } from 'lucide-react';
 import clsx from 'clsx';
 import { BarChart, Bar, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [geminiAnalysis, setGeminiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [rpcUrl, setRpcUrl] = useState(getRpcUrl());
+  const [isCloud, setIsCloud] = useState(false);
 
   // Check for API Key availability (injected by Vite)
   const hasApiKey = React.useMemo(() => {
@@ -28,16 +29,36 @@ const App: React.FC = () => {
 
   // Initialize Data & Admin State
   useEffect(() => {
-    // Load persisted data
-    const loaded = loadWallets();
-    setWallets(loaded);
-    setLastUpdate(getLastUpdateTime());
+    const initData = async () => {
+      setIsCloud(isCloudStorageEnabled());
+      
+      // Load persisted data (Async)
+      // This will now trigger the merge of Local -> Cloud if keys are configured
+      const loaded = await getWallets();
+      setWallets(loaded);
+      
+      const last = await getLastUpdateTime();
+      setLastUpdate(last);
+
+      // Auto-update logic (Simulating 8 AM check)
+      if (last) {
+        const lastDate = new Date(last);
+        const now = new Date();
+        const hoursDiff = Math.abs(now.getTime() - lastDate.getTime()) / 36e5;
+        if (hoursDiff > 24) {
+          handleSyncBalances(loaded); // Pass current loaded wallets to avoid stale state
+        }
+      }
+    };
+
+    initData();
 
     // Check Admin access via URL
     const checkAdminStatus = () => {
       const path = window.location.pathname;
+      const search = window.location.search;
       const hash = window.location.hash;
-      if (path.includes('/admin') || hash.includes('/admin')) {
+      if (path.includes('/admin') || hash.includes('admin') || search.includes('admin')) {
         setIsAdmin(true);
       } else {
         setIsAdmin(false);
@@ -48,17 +69,6 @@ const App: React.FC = () => {
     window.addEventListener('popstate', checkAdminStatus);
     window.addEventListener('hashchange', checkAdminStatus);
 
-    // Auto-update logic (Simulating 8 AM check)
-    const last = getLastUpdateTime();
-    if (last) {
-      const lastDate = new Date(last);
-      const now = new Date();
-      const hoursDiff = Math.abs(now.getTime() - lastDate.getTime()) / 36e5;
-      if (hoursDiff > 24) {
-        handleSyncBalances();
-      }
-    }
-
     return () => {
       window.removeEventListener('popstate', checkAdminStatus);
       window.removeEventListener('hashchange', checkAdminStatus);
@@ -67,23 +77,23 @@ const App: React.FC = () => {
   }, []);
 
   // Web3 Sync Logic
-  const handleSyncBalances = async () => {
-    if (wallets.length === 0) return;
+  const handleSyncBalances = async (currentWallets = wallets) => {
+    if (currentWallets.length === 0) return;
     setIsLoading(true);
     try {
-      const addresses = wallets.map(w => w.address);
+      const addresses = currentWallets.map(w => w.address);
       const balancesMap = await fetchBalancesBatch(addresses);
       const nowISO = new Date().toISOString();
 
-      const updatedWallets = wallets.map(w => {
+      const updatedWallets = currentWallets.map(w => {
         const newBal = balancesMap.get(w.address) ?? w.currentBalance;
         return updateWalletHistory(w, newBal, nowISO);
       });
 
       setWallets(updatedWallets);
-      saveWallets(updatedWallets);
+      await saveWallets(updatedWallets);
       setLastUpdate(nowISO);
-      setLastUpdateTime(nowISO);
+      await setLastUpdateTime(nowISO);
     } catch (err) {
       console.error("Sync failed", err);
       alert("Failed to sync balances. Check console and RPC settings in Admin.");
@@ -117,7 +127,6 @@ const App: React.FC = () => {
         };
       });
 
-      const merged = [...wallets, ...newWallets];
       // Dedup by address: use the new entry if it exists (allows updating labels by re-uploading)
       const uniqueMap = new Map();
       wallets.forEach(w => uniqueMap.set(w.address, w));
@@ -126,9 +135,9 @@ const App: React.FC = () => {
       const unique = Array.from(uniqueMap.values());
       
       setWallets(unique);
-      saveWallets(unique);
+      await saveWallets(unique);
       setLastUpdate(nowISO);
-      setLastUpdateTime(nowISO);
+      await setLastUpdateTime(nowISO);
     } catch (err) {
       alert("Error initializing new addresses. Please check your RPC connection.");
       console.error(err);
@@ -137,18 +146,19 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeleteWallet = (addr: string) => {
+  const handleDeleteWallet = async (addr: string) => {
     if (!window.confirm("Delete this wallet?")) return;
     const filtered = wallets.filter(w => w.address !== addr);
     setWallets(filtered);
-    saveWallets(filtered);
+    await saveWallets(filtered);
   };
 
-  const handlePurge = () => {
+  const handlePurge = async () => {
     if (window.confirm("Are you sure you want to delete ALL data?")) {
       setWallets([]);
-      saveWallets([]);
+      await saveWallets([]);
       setLastUpdate(null);
+      await setLastUpdateTime('');
     }
   };
 
@@ -186,6 +196,8 @@ const App: React.FC = () => {
         case 'change7d_desc': return getChange7d(b) - getChange7d(a);
         case 'change7d_asc': return getChange7d(a) - getChange7d(b);
         case 'change1d_desc': return getChange1d(b) - getChange1d(a);
+        case 'owner_asc': return a.owner.localeCompare(b.owner);
+        case 'owner_desc': return b.owner.localeCompare(a.owner);
         default: return 0;
       }
     });
@@ -222,10 +234,17 @@ const App: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">Polygon DAI Monitor</h1>
-              <p className="text-xs text-slate-400 flex items-center">
-                <RefreshCcw size={10} className="mr-1" />
-                Updated: {lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Never'}
-              </p>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span className="flex items-center">
+                   <RefreshCcw size={10} className="mr-1" />
+                   {lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Never'}
+                </span>
+                <span className="text-slate-600">|</span>
+                <span className={clsx("flex items-center font-medium", isCloud ? "text-green-400" : "text-amber-400")}>
+                   {isCloud ? <Cloud size={10} className="mr-1" /> : <HardDrive size={10} className="mr-1" />}
+                   {isCloud ? "Cloud Sync Active" : "Local Storage Only"}
+                </span>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -275,7 +294,7 @@ const App: React.FC = () => {
             onUpload={handleUploadAddresses} 
             onPurge={handlePurge}
             isUpdating={isLoading}
-            triggerUpdate={handleSyncBalances}
+            triggerUpdate={() => handleSyncBalances(wallets)}
             currentRpc={rpcUrl}
             onUpdateRpc={handleRpcUpdate}
           />
@@ -311,6 +330,8 @@ const App: React.FC = () => {
                   <option value="change7d_desc">Biggest Gainers (7d)</option>
                   <option value="change7d_asc">Biggest Losers (7d)</option>
                   <option value="change1d_desc">Biggest Gainers (24h)</option>
+                  <option value="owner_asc">Name (A-Z)</option>
+                  <option value="owner_desc">Name (Z-A)</option>
                 </select>
              </div>
              
@@ -364,6 +385,11 @@ const App: React.FC = () => {
             {wallets.length === 0 && !isAdmin && (
               <span className="block mt-2 text-indigo-400">
                 Hint: Add <code>/admin</code> to your browser URL to enter Admin Mode and upload addresses.
+              </span>
+            )}
+            {!isCloud && (
+              <span className="block mt-2 text-amber-500/80">
+                Note: Running in Local Mode. Data is not shared with other users. Configure Supabase in .env to enable cloud sync.
               </span>
             )}
           </p>

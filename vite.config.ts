@@ -9,10 +9,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // CRITICAL FIX: Do not overwrite the entire 'process.env' object.
-      // Instead, define specific keys safely.
-      // This ensures 'process.env.NODE_ENV' remains intact for React.
-      'process.env.API_KEY': JSON.stringify(env.API_KEY || '')
+      // Safe injection of environment variables
+      'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
+      // Use provided Supabase credentials as defaults if env vars are missing
+      'process.env.SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || 'https://mztgxwstjxxafpeefpgh.supabase.co'),
+      'process.env.SUPABASE_KEY': JSON.stringify(env.VITE_SUPABASE_KEY || 'sb_publishable_VqLEeWgaS2Hm7g3UQgP_iA_hZkSIWMj')
     }
   };
 });

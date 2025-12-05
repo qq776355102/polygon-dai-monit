@@ -13,7 +13,7 @@ export interface WalletData {
   history: HistoricalRecord[]; // Last 7 days
 }
 
-export type SortOption = 'balance_desc' | 'balance_asc' | 'change7d_desc' | 'change7d_asc' | 'change1d_desc';
+export type SortOption = 'balance_desc' | 'balance_asc' | 'change7d_desc' | 'change7d_asc' | 'change1d_desc' | 'owner_asc' | 'owner_desc';
 
 export interface AppState {
   wallets: WalletData[];
