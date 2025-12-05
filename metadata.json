@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Polygon DAI Monitor",
+  "description": "A comprehensive dashboard for monitoring DAI token balances across 200+ Polygon addresses. Features historical tracking, analytics, and admin management.",
+  "requestFramePermissions": []
+}
