@@ -6,9 +6,11 @@ const STORAGE_KEY = 'polygon_dai_monitor_data';
 const LAST_UPDATE_KEY = 'polygon_dai_last_update';
 const RPC_KEY = 'polygon_dai_rpc_url';
 
-// Initialize Supabase if keys are present
+// Initialize Supabase with robust checks
 const supabaseUrl = typeof process !== 'undefined' ? process.env.SUPABASE_URL : '';
 const supabaseKey = typeof process !== 'undefined' ? process.env.SUPABASE_KEY : '';
+
+// Ensure we don't crash if keys are somehow missing, though vite.config.ts provides defaults
 const supabase = (supabaseUrl && supabaseKey) 
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
@@ -18,6 +20,8 @@ export const isCloudStorageEnabled = () => !!supabase;
 export const getWallets = async (): Promise<WalletData[]> => {
   if (supabase) {
     try {
+      console.log("Attempting to fetch data from Cloud (Supabase)...");
+      
       // 1. Fetch Cloud Data
       const { data, error } = await supabase
         .from('app_data')
@@ -26,23 +30,28 @@ export const getWallets = async (): Promise<WalletData[]> => {
         .single();
       
       if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
-        console.error("Supabase load error:", error);
+        console.warn("Supabase load warning (might be first run):", error.message);
       }
       
       let cloudWallets: WalletData[] = data?.value || [];
+      console.log(`Cloud returned ${cloudWallets.length} wallets.`);
 
-      // 2. Sync Logic: Check LocalStorage for any data that isn't in Cloud
-      // This handles the "upload from my computer" -> "sync to everyone" requirement
+      // 2. Sync Logic: Local -> Cloud
+      // This is crucial for the "upload from my computer" -> "sync to everyone" workflow.
+      // We check if LocalStorage has data. If so, we merge it into Cloud if it's missing there.
       const localStr = localStorage.getItem(STORAGE_KEY);
       if (localStr) {
         const localWallets: WalletData[] = JSON.parse(localStr);
+        
         if (localWallets.length > 0) {
+           // Create a map of existing cloud addresses for fast lookup (case insensitive)
            const cloudMap = new Map(cloudWallets.map(w => [w.address.toLowerCase(), w]));
            let hasNewData = false;
 
            localWallets.forEach(localW => {
              // If local address does not exist in cloud, add it
              if (!cloudMap.has(localW.address.toLowerCase())) {
+               console.log(`Syncing local wallet to cloud: ${localW.owner} (${localW.address})`);
                cloudWallets.push(localW);
                hasNewData = true;
              }
@@ -50,44 +59,53 @@ export const getWallets = async (): Promise<WalletData[]> => {
 
            // 3. If we merged new local data into cloud, save the updated list back to cloud
            if (hasNewData) {
-             console.log("Syncing local data to cloud...");
+             console.log("New local data detected. Saving merged list to cloud...");
              await saveWallets(cloudWallets); 
-             // Optional: Clear local storage to avoid confusion? 
-             // For now we keep it as a cache/backup but Cloud is source of truth.
+           } else {
+             console.log("Local data is already in sync with cloud.");
            }
         }
       }
 
+      // Update local cache to match the authoritative cloud state
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudWallets));
+
       return cloudWallets;
     } catch (err) {
       console.error("Failed to fetch from cloud, falling back to local:", err);
-      // Fallback
+      // Fallback to local storage if internet is down or supabase is misconfigured
       const data = localStorage.getItem(STORAGE_KEY);
       return data ? JSON.parse(data) : [];
     }
   } else {
     // LocalStorage Only Mode
+    console.log("Cloud storage disabled. Using local storage.");
     const data = localStorage.getItem(STORAGE_KEY);
     return data ? JSON.parse(data) : [];
   }
 };
 
 export const saveWallets = async (wallets: WalletData[]) => {
+  // Always save to local first for immediate UI feedback and offline capability
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
+
   if (supabase) {
     try {
-      // We store the entire array in a single JSONB row for simplicity
+      // We store the entire array in a single JSONB row. 
+      // This is simple and effective for < 1000 wallets.
       const { error } = await supabase
         .from('app_data')
         .upsert({ key: 'wallets', value: wallets });
       
-      if (error) console.error("Supabase save error:", error);
+      if (error) {
+        console.error("Supabase save error:", error);
+      } else {
+        console.log("Data successfully saved to Supabase.");
+      }
     } catch (err) {
       console.error("Failed to save to cloud:", err);
     }
   } 
-  
-  // Always save to local as well for offline/speed
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
 };
 
 export const getLastUpdateTime = async (): Promise<string | null> => {
@@ -101,13 +119,13 @@ export const getLastUpdateTime = async (): Promise<string | null> => {
 };
 
 export const setLastUpdateTime = async (isoDate: string) => {
+  localStorage.setItem(LAST_UPDATE_KEY, isoDate);
   if (supabase) {
     await supabase.from('app_data').upsert({ key: 'last_update', value: isoDate });
   }
-  localStorage.setItem(LAST_UPDATE_KEY, isoDate);
 };
 
-// RPC URL remains local-only preference
+// RPC URL remains local-only preference because different users might want different nodes
 export const getRpcUrl = (): string => {
   return localStorage.getItem(RPC_KEY) || POLYGON_RPC;
 };

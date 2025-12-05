@@ -190,14 +190,17 @@ const App: React.FC = () => {
         return w.currentBalance - w.history[w.history.length - 2].balance;
       };
 
+      const ownerA = a.owner || '';
+      const ownerB = b.owner || '';
+
       switch (sortOption) {
         case 'balance_desc': return b.currentBalance - a.currentBalance;
         case 'balance_asc': return a.currentBalance - b.currentBalance;
         case 'change7d_desc': return getChange7d(b) - getChange7d(a);
         case 'change7d_asc': return getChange7d(a) - getChange7d(b);
         case 'change1d_desc': return getChange1d(b) - getChange1d(a);
-        case 'owner_asc': return a.owner.localeCompare(b.owner);
-        case 'owner_desc': return b.owner.localeCompare(a.owner);
+        case 'owner_asc': return ownerA.localeCompare(ownerB, undefined, { numeric: true, sensitivity: 'base' });
+        case 'owner_desc': return ownerB.localeCompare(ownerA, undefined, { numeric: true, sensitivity: 'base' });
         default: return 0;
       }
     });
