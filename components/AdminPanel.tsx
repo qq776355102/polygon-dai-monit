@@ -29,6 +29,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleUpload = () => {
     const lines = inputText.split('\n');
     const parsedData: { address: string; label: string }[] = [];
+    // Regex for Ethereum address (case insensitive)
     const addressRegex = /(0x[a-fA-F0-9]{40})/;
 
     for (const line of lines) {
@@ -39,8 +40,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       if (match) {
         const address = match[0];
         // Remove the address from the line to find the label
-        // This handles "Label, Address" or "Address" or "Label Address"
-        let label = trimmed.replace(address, '').replace(/[,，]/g, '').trim();
+        // This handles "Label, Address", "Address, Label", "Label Address" etc.
+        let label = trimmed
+          .replace(address, '')
+          .replace(/[,，;]/g, ' ') // Replace separators with space
+          .trim();
         
         parsedData.push({ address, label });
       }

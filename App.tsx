@@ -21,6 +21,11 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [rpcUrl, setRpcUrl] = useState(getRpcUrl());
 
+  // Check for API Key availability (injected by Vite)
+  const hasApiKey = React.useMemo(() => {
+    return typeof process !== 'undefined' && !!process.env.API_KEY;
+  }, []);
+
   // Initialize Data & Admin State
   useEffect(() => {
     // Load persisted data
@@ -81,7 +86,7 @@ const App: React.FC = () => {
       setLastUpdateTime(nowISO);
     } catch (err) {
       console.error("Sync failed", err);
-      alert("Failed to sync balances. Check console.");
+      alert("Failed to sync balances. Check console and RPC settings in Admin.");
     } finally {
       setIsLoading(false);
     }
@@ -125,7 +130,7 @@ const App: React.FC = () => {
       setLastUpdate(nowISO);
       setLastUpdateTime(nowISO);
     } catch (err) {
-      alert("Error initializing new addresses");
+      alert("Error initializing new addresses. Please check your RPC connection.");
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -309,11 +314,17 @@ const App: React.FC = () => {
                 </select>
              </div>
              
-             {/* Gemini Button */}
+             {/* Gemini Button - Always shown but visual feedback on disabled state if needed */}
              <button
                onClick={handleAnalysis}
                disabled={isAnalyzing || wallets.length === 0}
-               className="flex items-center justify-center px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-sm font-medium transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+               className={clsx(
+                 "flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-lg",
+                 hasApiKey 
+                   ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-indigo-500/20"
+                   : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+               )}
+               title={hasApiKey ? "Generate AI Report" : "API Key Not Configured"}
              >
                <Sparkles size={16} className={clsx("mr-2", isAnalyzing && "animate-spin")} />
                {isAnalyzing ? 'Thinking...' : 'AI Insights'}
@@ -349,7 +360,12 @@ const App: React.FC = () => {
         {/* Footer info for Demo */}
         <div className="mt-8 text-center text-xs text-slate-600">
           <p>
-            System auto-updates daily. Access Admin features via <code>/admin</code> URL.
+            System auto-updates daily. 
+            {wallets.length === 0 && !isAdmin && (
+              <span className="block mt-2 text-indigo-400">
+                Hint: Add <code>/admin</code> to your browser URL to enter Admin Mode and upload addresses.
+              </span>
+            )}
           </p>
         </div>
       </main>

@@ -3,9 +3,11 @@ import { WalletData } from "../types";
 
 export const analyzeWallets = async (wallets: WalletData[]): Promise<string> => {
   try {
-    const apiKey = process.env.API_KEY;
+    // Safe access to process.env
+    const apiKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : '';
+    
     if (!apiKey) {
-      return "Please configure the API_KEY in your environment to use Gemini analysis features.";
+      return "⚠️ AI Analysis Unavailable.\n\nTo enable this feature, please create a `.env` file in the project root and add your Gemini API Key:\n\nAPI_KEY=your_key_here\n\n(The rest of the dashboard functions normally without this.)";
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -46,6 +48,6 @@ export const analyzeWallets = async (wallets: WalletData[]): Promise<string> => 
     return response.text || "No analysis generated.";
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
-    return "Failed to generate analysis. Please try again later.";
+    return "Failed to generate analysis. Please check your API Key configuration or try again later.";
   }
 };
