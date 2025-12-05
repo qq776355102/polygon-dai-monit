@@ -1,10 +1,10 @@
-import { createPublicClient, http, encodeFunctionData, decodeFunctionResult, formatUnits, PublicClient } from 'viem';
+import { createPublicClient, http, encodeFunctionData, decodeFunctionResult, formatUnits } from 'viem';
 import { polygon } from 'viem/chains';
 import { DAI_ADDRESS, ERC20_ABI, MULTICALL_ADDRESS, MULTICALL_ABI } from '../constants';
 import { getRpcUrl } from './storageService';
 
 // Initialize Viem Client dynamically
-let client: PublicClient;
+let client: any;
 
 export const reinitializeClient = () => {
   const rpcUrl = getRpcUrl();
@@ -33,7 +33,7 @@ export const fetchBalancesBatch = async (addresses: string[]): Promise<Map<strin
 
   // Create Multicall calls
   const calls = addresses.map(addr => ({
-    target: DAI_ADDRESS,
+    target: DAI_ADDRESS as `0x${string}`,
     allowFailure: true,
     callData: encodeFunctionData({
       abi: ERC20_ABI,
@@ -68,7 +68,7 @@ export const fetchBalancesBatch = async (addresses: string[]): Promise<Map<strin
             abi: ERC20_ABI,
             functionName: 'balanceOf',
             data: result.returnData,
-          });
+          }) as bigint;
           // DAI has 18 decimals
           const formatted = parseFloat(formatUnits(balanceBigInt, 18));
           resultsMap.set(address, formatted);
