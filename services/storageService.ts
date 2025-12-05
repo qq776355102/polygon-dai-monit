@@ -146,20 +146,23 @@ export const updateWalletHistory = (
 ): WalletData => {
   const newHistory: HistoricalRecord[] = [...wallet.history];
   
-  // Check if we already have an entry for today (simple date check YYYY-MM-DD)
+  // Use YYYY-MM-DD from the ISO string to identify "today" in UTC
+  // This ensures that even if users are in different timezones, the "day" bucket is consistent globally
   const todayStr = currentDate.split('T')[0];
   const lastEntry = newHistory.length > 0 ? newHistory[newHistory.length - 1] : null;
 
   if (lastEntry && lastEntry.date.startsWith(todayStr)) {
-    // Update today's entry
+    // If an entry for "today" already exists, update it with the latest balance
+    // This handles multiple updates within the same day
     newHistory[newHistory.length - 1] = { date: currentDate, balance: newBalance };
   } else {
-    // Add new entry
+    // Otherwise, push a new entry for the new day
     newHistory.push({ date: currentDate, balance: newBalance });
   }
 
-  // Keep max 7 items (Latest week) + we always have initialBalance separate
-  if (newHistory.length > 7) {
+  // Keep max 8 items (Latest + 7 days history)
+  // We keep 8 so we can calculate the 7-day change (Current - 7 days ago)
+  if (newHistory.length > 8) {
     newHistory.shift(); // Remove oldest
   }
 

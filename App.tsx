@@ -6,7 +6,7 @@ import { analyzeWallets } from './services/geminiService';
 import WalletTable from './components/WalletTable';
 import AdminPanel from './components/AdminPanel';
 import StatsCard from './components/StatsCard';
-import { LayoutDashboard, Users, TrendingUp, Search, Filter, RefreshCcw, Sparkles, Cloud, HardDrive } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, Search, Filter, RefreshCcw, Sparkles, Cloud, HardDrive, Download } from 'lucide-react';
 import clsx from 'clsx';
 import { BarChart, Bar, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -111,31 +111,44 @@ const App: React.FC = () => {
       const balancesMap = await fetchBalancesBatch(addresses);
       const nowISO = new Date().toISOString();
 
-      const newWallets: WalletData[] = newEntries.map((entry, idx) => {
-        const bal = balancesMap.get(entry.address) || 0;
-        // Generate default label if missing
-        const label = entry.label || `Wallet #${wallets.length + idx + 1}`;
-        
-        return {
-          address: entry.address,
-          owner: label,
-          initialBalance: bal,
-          initialBlock: currentBlock,
-          currentBalance: bal,
-          lastUpdated: nowISO,
-          history: [{ date: nowISO, balance: bal }]
-        };
+      // Create a map of existing wallets for fast lookup
+      const existingMap = new Map(wallets.map(w => [w.address.toLowerCase(), w]));
+
+      const processedWallets: WalletData[] = newEntries.map((entry) => {
+        const addrLower = entry.address.toLowerCase();
+        const existingWallet = existingMap.get(addrLower);
+        const currentBal = balancesMap.get(entry.address) || 0;
+        const label = entry.label || existingWallet?.owner || `Wallet #${addrLower.slice(0,6)}`;
+
+        if (existingWallet) {
+          // CRITICAL FIX: Preserve initialBalance and history for existing wallets
+          // Only update the label, current balance, and append to history if needed
+          const updatedWallet = updateWalletHistory(existingWallet, currentBal, nowISO);
+          return {
+            ...updatedWallet,
+            owner: label
+          };
+        } else {
+          // New wallet initialization
+          return {
+            address: entry.address,
+            owner: label,
+            initialBalance: currentBal,
+            initialBlock: currentBlock,
+            currentBalance: currentBal,
+            lastUpdated: nowISO,
+            history: [{ date: nowISO, balance: currentBal }]
+          };
+        }
       });
 
-      // Dedup by address: use the new entry if it exists (allows updating labels by re-uploading)
-      const uniqueMap = new Map();
-      wallets.forEach(w => uniqueMap.set(w.address, w));
-      newWallets.forEach(w => uniqueMap.set(w.address, w));
+      // Merge: Update existing ones in the main list, add new ones
+      const finalMap = new Map(wallets.map(w => [w.address.toLowerCase(), w]));
+      processedWallets.forEach(w => finalMap.set(w.address.toLowerCase(), w));
+      const uniqueWallets = Array.from(finalMap.values());
       
-      const unique = Array.from(uniqueMap.values());
-      
-      setWallets(unique);
-      await saveWallets(unique);
+      setWallets(uniqueWallets);
+      await saveWallets(uniqueWallets);
       setLastUpdate(nowISO);
       await setLastUpdateTime(nowISO);
     } catch (err) {
@@ -174,6 +187,53 @@ const App: React.FC = () => {
     const result = await analyzeWallets(wallets);
     setGeminiAnalysis(result);
     setIsAnalyzing(false);
+  };
+
+  // Export Data Report to CSV
+  const exportDataReport = () => {
+    if (wallets.length === 0) return;
+    
+    // CSV Header
+    const headers = [
+      "Label", 
+      "Address", 
+      "Current Balance (DAI)", 
+      "Initial Balance (DAI)", 
+      "Change (Since Init)", 
+      "Change (24h)", 
+      "Change (7d)", 
+      "Last Updated"
+    ];
+
+    // CSV Rows
+    const rows = wallets.map(w => {
+      const bal = w.currentBalance;
+      const init = w.initialBalance;
+      const changeInit = bal - init;
+      const change24h = w.history.length > 1 ? bal - w.history[w.history.length - 2].balance : 0;
+      const change7d = w.history.length > 0 ? bal - w.history[0].balance : 0; // Approx logic if < 7 days data exists
+      
+      return [
+        `"${w.owner || ''}"`,
+        w.address,
+        bal.toFixed(2),
+        init.toFixed(2),
+        changeInit.toFixed(2),
+        change24h.toFixed(2),
+        change7d.toFixed(2),
+        `"${new Date(w.lastUpdated).toLocaleString()}"`
+      ].join(",");
+    });
+
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `dai_report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // Derived Data & Filtering
@@ -300,6 +360,7 @@ const App: React.FC = () => {
             triggerUpdate={() => handleSyncBalances(wallets)}
             currentRpc={rpcUrl}
             onUpdateRpc={handleRpcUpdate}
+            wallets={wallets}
           />
         )}
 
@@ -318,8 +379,8 @@ const App: React.FC = () => {
             />
           </div>
 
-          <div className="flex gap-2 w-full md:w-auto">
-             <div className="relative">
+          <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+             <div className="relative min-w-[160px]">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Filter size={16} className="text-slate-500" />
                 </div>
@@ -337,13 +398,23 @@ const App: React.FC = () => {
                   <option value="owner_desc">Name (Z-A)</option>
                 </select>
              </div>
+
+             <button
+               onClick={exportDataReport}
+               disabled={wallets.length === 0}
+               className="flex items-center justify-center px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm font-medium transition-colors border border-slate-600 min-w-max"
+               title="Download CSV Report"
+             >
+               <Download size={16} className="mr-2" />
+               Export CSV
+             </button>
              
-             {/* Gemini Button - Always shown but visual feedback on disabled state if needed */}
+             {/* Gemini Button */}
              <button
                onClick={handleAnalysis}
                disabled={isAnalyzing || wallets.length === 0}
                className={clsx(
-                 "flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-lg",
+                 "flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-lg min-w-max",
                  hasApiKey 
                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-indigo-500/20"
                    : "bg-slate-700 text-slate-400 hover:bg-slate-600"

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Trash2, RefreshCw, Settings, Save } from 'lucide-react';
+import { Upload, Trash2, RefreshCw, Settings, Save, Download } from 'lucide-react';
+import { WalletData } from '../types';
 
 interface AdminPanelProps {
   onUpload: (data: { address: string; label: string }[]) => void;
@@ -8,6 +9,7 @@ interface AdminPanelProps {
   triggerUpdate: () => void;
   currentRpc: string;
   onUpdateRpc: (url: string) => void;
+  wallets?: WalletData[];
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ 
@@ -16,7 +18,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   isUpdating, 
   triggerUpdate,
   currentRpc,
-  onUpdateRpc
+  onUpdateRpc,
+  wallets = []
 }) => {
   const [inputText, setInputText] = useState('');
   const [rpcInput, setRpcInput] = useState(currentRpc);
@@ -68,6 +71,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     setTimeout(() => setRpcSaved(false), 2000);
   };
 
+  const exportAddressBackup = () => {
+    if (!wallets || wallets.length === 0) {
+      alert("No wallets to export.");
+      return;
+    }
+    
+    // Format: Label, Address
+    const rows = wallets.map(w => `${w.owner},${w.address}`);
+    const csvContent = rows.join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `address_backup_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-xl mb-8 animate-fade-in">
       <h3 className="text-xl font-semibold text-slate-100 mb-4 flex items-center">
@@ -92,21 +115,30 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
           />
-          <div className="mt-3 flex gap-3">
+          <div className="mt-3 flex gap-3 flex-wrap">
             <button
               onClick={handleUpload}
               disabled={!inputText}
               className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={16} className="mr-2" />
-              Upload Addresses
+              Upload
+            </button>
+            <button
+               onClick={exportAddressBackup}
+               disabled={wallets.length === 0}
+               className="flex items-center px-4 py-2 border border-slate-600 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors"
+               title="Download address list as CSV for backup"
+            >
+               <Download size={16} className="mr-2" />
+               Backup
             </button>
             <button
                onClick={onPurge}
-               className="flex items-center px-4 py-2 border border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-lg text-sm font-medium transition-colors"
+               className="flex items-center px-4 py-2 border border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-lg text-sm font-medium transition-colors ml-auto"
             >
                <Trash2 size={16} className="mr-2" />
-               Purge All Data
+               Purge
             </button>
           </div>
         </div>
